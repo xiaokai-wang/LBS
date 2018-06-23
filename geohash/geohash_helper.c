@@ -237,6 +237,95 @@ GeoHashRadius geohashGetAreasByRadiusMercator(double latitude, double longitude,
                                    radius_meters);
 }
 
+bool getGeohashNeighbors(uint8_t coord_type, double latitude, 
+                         double longitude, int radius, 
+                         std::vector<GeoHashBits>& neighbors)
+{
+    GeoHashRadius georadius = geohashGetAreasByRadius(coord_type, latitude, longitude, radius); 
+    neighbors.push_back(georadius.hash);
+    neighbors.push_back(georadius.neighbors.north);
+    neighbors.push_back(georadius.neighbors.south);
+    neighbors.push_back(georadius.neighbors.east);
+    neighbors.push_back(georadius.neighbors.west);
+    neighbors.push_back(georadius.neighbors.north_east);
+    neighbors.push_back(georadius.neighbors.north_west);
+    neighbors.push_back(georadius.neighbors.south_east);
+    neighbors.push_back(georadius.neighbors.south_west);  
+
+    return true;
+}
+
+bool getGeohashNeighborsGrid(uint8_t coord_type, double latitude, 
+                             double longitude, int radius, int precision, 
+                             std::vector<GeoHashBits>& neighbors_grid)
+{
+    int radius_step, precision_step;
+    GeoHashArea area = {{0}};
+    vector<GeoHashBits> neighbors;
+    GeoHashRange lat_range, long_range;
+    double delta_latitude, delta_longitude;
+    double min_lat, max_lat, min_lon, max_lon;
+
+    if (coord_type == GEO_WGS84_TYPE) {
+        double bounds[4];
+        geohashBoundingBox(lat, lng, radius, bounds);
+        min_lat = bounds[0];
+        min_lon = bounds[1];
+        max_lat = bounds[2];
+        max_lon = bounds[3];
+    } else {
+        delta_latitude = delta_longitude = radius;
+        min_lat = lat - delta_latitude;
+        max_lat = lat + delta_latitude;
+        min_lon = lng - delta_longitude;
+        max_lon = lng + delta_longitude;
+    }
+
+    precision_step = geohashEstimateStepsByRadius(precision);
+    geohashGetCoordRange(coord_type, &lat_range, &long_range);
+    getGeohashNeighbors(coord_type, latitude, longitude, radius, neighbors);
+
+    radius_step = neighbors[0].step;
+    for(size_t index = 0; index < neighbors.size(); index++)
+    {
+        if(neighbors[index].bits == 0)
+        {
+            continue;
+        }
+
+        if(radius_step == precision_step)
+        {
+            neighbors_grid.push_back(neighbors[index]);
+
+            continue;
+        }
+
+        GeoHashBits hash;
+        if(radius_step < precision_step)
+        {
+            hash.step = precision_step;
+            hash.bits = neighbors[index].bits << (precision_step - radius_step) * 2;
+
+            size_t bit_step = 1 << ((precision_step - radius_step) * 2);
+            for(size_t i = 0; i < bit_step; i++)
+            {
+                geohashDecode(lat_range, long_range, hash, &area);
+                if(area.latitude.min > max_lat || area.latitude.max < min_lat ||
+                   area.longitude.max < min_lon || area.longitude.min > max_lon)
+                {
+                    hash.bits += 1;
+                    continue;
+                }
+
+                neighbors_grid.push_back(hash);
+                hash.bits += 1;
+            }
+        }
+    }
+
+    return true;
+}
+
 GeoHashFix52Bits geohashAlign52Bits(const GeoHashBits hash) {
     uint64_t bits = hash.bits;
     bits <<= (52 - hash.step * 2);
